@@ -323,5 +323,18 @@ if selected_foods:
     # Display the table
     st.dataframe(selected_df[display_cols].sort_values("Entity"), hide_index=True)
 
-# Visualization for the comparison between foods
-if
+# Add some information about the data source and app
+st.markdown("""
+---
+### About this App
+This app calculates the nutritional content and environmental impact of selected foods based on quantity.
+- Source data is per kilogram of each food item.
+- The app automatically converts between your selected ounce quantities and the per-kilogram data.
+- Nutritional data is shown in grams.
+- Calories are calculated using the standard 4-4-9 formula:
+  - 4 calories per gram of carbohydrates
+  - 4 calories per gram of protein
+  - 9 calories per gram of fat
+- Emissions data is shown in kg CO₂ equivalent.
+- Negative emission values (like in land use) represent carbon sequestration.
+""")
