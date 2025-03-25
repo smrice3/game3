@@ -1,8 +1,8 @@
 import streamlit as st
 import pandas as pd
-import plotly.graph_objects as go
-import plotly.express as px
 import numpy as np
+import matplotlib.pyplot as plt
+import altair as alt
 import math
 
 # Set page config
@@ -27,11 +27,6 @@ st.markdown("""
     .stProgress .st-bo {
         background-color: #3498db;
     }
-    .food-grid {
-        display: grid;
-        grid-template-columns: repeat(3, 1fr);
-        gap: 10px;
-    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -45,7 +40,14 @@ def load_data():
     df = pd.read_csv("Combined Data on Food.csv")
     # Original data is per kilogram, but we'll keep it as is
     # We'll do the conversion when calculating totals based on user-selected ounces
+    
+    # Add a calorie column based on macronutrients
+    # 4 calories per gram of carbs, 4 calories per gram of protein, 9 calories per gram of fat
+    df['Calories'] = df['Carbohydrates (g)'] * 4 + df['Proteins (g)'] * 4 + df['Fats (g)'] * 9
+    
     return df
+
+df = load_data()
 
 # Function to convert kg to oz and vice versa
 def kg_to_oz(kg_value):
@@ -56,68 +58,80 @@ def oz_to_kg(oz_value):
     # 1 oz = 0.0283495 kg
     return oz_value * 0.0283495
 
-df = load_data()
-
-# Function to create the radial charts
-def create_radial_chart(data, chart_type):
-    if chart_type == "nutrition":
-        categories = ["Carbohydrates", "Proteins", "Fats"]
-        values = [data["Carbohydrates (g)"], data["Proteins (g)"], data["Fats (g)"]]
-        colors = ["#3498db", "#2ecc71", "#e74c3c"]
-        title = "Nutritional Content (g)"
-    else:  # emissions
-        categories = [
-            "Land Use", "Farm", "Animal Feed", "Processing", 
-            "Transport", "Retail", "Packaging", "Losses"
-        ]
-        values = [
-            data["food_emissions_land_use"], 
-            data["food_emissions_farm"],
-            data["food_emissions_animal_feed"], 
-            data["food_emissions_processing"],
-            data["food_emissions_transport"], 
-            data["food_emissions_retail"],
-            data["food_emissions_packaging"], 
-            data["food_emissions_losses"]
-        ]
-        colors = px.colors.sequential.Viridis[::-1]
-        title = "Emissions (kg CO₂ eq)"
+# Function to create the nutrition chart using Matplotlib
+def create_nutrition_chart(data):
+    # Create a figure and axis
+    fig, ax = plt.subplots(figsize=(6, 6), subplot_kw=dict(polar=True))
     
-    # Create the radial chart
-    fig = go.Figure()
+    # Categories and values
+    categories = ["Carbohydrates", "Proteins", "Fats"]
+    values = [data["Carbohydrates (g)"], data["Proteins (g)"], data["Fats (g)"]]
     
-    # Add each category as a separate trace
-    for i, (cat, val) in enumerate(zip(categories, values)):
-        fig.add_trace(go.Barpolar(
-            r=[val],
-            theta=[cat],
-            width=[0.7],
-            marker_color=[colors[i % len(colors)]],
-            marker_line_width=0,
-            name=cat,
-            hoverinfo="text",
-            hovertext=f"{cat}: {val:.2f}"
-        ))
+    # Number of categories
+    N = len(categories)
     
-    # Update the layout
-    fig.update_layout(
-        polar=dict(
-            radialaxis=dict(
-                visible=True,
-                range=[0, max(values) * 1.1],
-                showticklabels=False,
-            ),
-            angularaxis=dict(
-                direction="clockwise",
-                categoryarray=categories
-            )
-        ),
-        showlegend=True,
-        legend=dict(orientation="h", y=-0.1),
-        title=dict(text=title, x=0.5),
-        margin=dict(t=80, b=80, l=20, r=20),
-        height=450,
+    # Compute the angle for each category
+    angles = [n / float(N) * 2 * np.pi for n in range(N)]
+    angles += angles[:1]  # Close the loop
+    
+    # Add the values to the plot
+    ax.bar(
+        angles[:-1], 
+        values, 
+        width=0.5, 
+        alpha=0.8, 
+        color=['#3498db', '#2ecc71', '#e74c3c']
     )
+    
+    # Set the labels
+    plt.xticks(angles[:-1], categories)
+    
+    # Add a title
+    plt.title("Nutritional Content (g)", size=15)
+    
+    # Adjust the layout
+    plt.tight_layout()
+    
+    return fig
+
+# Function to create the emissions chart using Matplotlib
+def create_emissions_chart(data):
+    # Create a figure and axis
+    fig, ax = plt.subplots(figsize=(8, 6))
+    
+    # Categories and values
+    categories = [
+        "Land Use", "Farm", "Animal Feed", "Processing", 
+        "Transport", "Retail", "Packaging", "Losses"
+    ]
+    values = [
+        data["food_emissions_land_use"], 
+        data["food_emissions_farm"],
+        data["food_emissions_animal_feed"], 
+        data["food_emissions_processing"],
+        data["food_emissions_transport"], 
+        data["food_emissions_retail"],
+        data["food_emissions_packaging"], 
+        data["food_emissions_losses"]
+    ]
+    
+    # Create a bar chart
+    colors = plt.cm.viridis(np.linspace(0, 1, len(categories)))
+    bars = ax.barh(categories, values, color=colors, alpha=0.8)
+    
+    # Add labels and title
+    ax.set_xlabel("Emissions (kg CO₂ eq)")
+    ax.set_title("Emissions by Category")
+    
+    # Add values to the bars
+    for bar in bars:
+        width = bar.get_width()
+        label_x_pos = width if width > 0 else 0
+        ax.text(label_x_pos, bar.get_y() + bar.get_height()/2, f'{width:.3f}', 
+                va='center', ha='left', fontsize=8)
+    
+    # Adjust the layout
+    plt.tight_layout()
     
     return fig
 
@@ -126,6 +140,11 @@ col1, col2 = st.columns([1, 2])
 
 with col1:
     st.header("Food Selection")
+    
+    # Add calorie target option
+    st.subheader("Calorie Target")
+    calorie_target = st.number_input("Target Calories", min_value=100, max_value=2000, value=700, step=50)
+    st.write(f"Targeting approximately {calorie_target} calories")
     
     # Sort the food items alphabetically
     food_items = sorted(df["Entity"].unique())
@@ -171,6 +190,7 @@ with col2:
             "Carbohydrates (g)": 0,
             "Fats (g)": 0,
             "Proteins (g)": 0,
+            "Calories": 0,
             "food_emissions_land_use": 0,
             "food_emissions_farm": 0,
             "food_emissions_animal_feed": 0,
@@ -189,16 +209,36 @@ with col2:
             for key in agg_data:
                 agg_data[key] += food_data[key] * qty_kg
         
+        # Display calorie progress
+        total_calories = round(agg_data["Calories"])
+        st.subheader("Calorie Progress")
+        calorie_percentage = min(100, (total_calories / calorie_target) * 100)
+        
+        st.progress(calorie_percentage / 100)
+        calorie_text = f"**Total Calories: {total_calories} / {calorie_target}**"
+        if abs(total_calories - calorie_target) <= 50:
+            calorie_text += " ✅ (Within 50 calories of target)"
+        elif total_calories > calorie_target:
+            calorie_text += f" ⚠️ ({total_calories - calorie_target} calories over target)"
+        else:
+            calorie_text += f" ℹ️ ({calorie_target - total_calories} calories under target)"
+        
+        st.markdown(calorie_text)
+        
         # Create two columns for the charts
         chart_col1, chart_col2 = st.columns(2)
         
         with chart_col1:
             st.subheader("Nutritional Content")
-            nutrition_chart = create_radial_chart(agg_data, "nutrition")
-            st.plotly_chart(nutrition_chart, use_container_width=True)
+            nutrition_chart = create_nutrition_chart(agg_data)
+            st.pyplot(nutrition_chart)
             
             # Show nutritional summary
             st.write("### Nutritional Summary")
+            carbs_cal = round(agg_data["Carbohydrates (g)"] * 4, 1)
+            protein_cal = round(agg_data["Proteins (g)"] * 4, 1)
+            fat_cal = round(agg_data["Fats (g)"] * 9, 1)
+            
             summary_data = {
                 "Nutrient": ["Carbohydrates", "Proteins", "Fats", "Total"],
                 "Amount (g)": [
@@ -206,14 +246,26 @@ with col2:
                     round(agg_data["Proteins (g)"], 1),
                     round(agg_data["Fats (g)"], 1),
                     round(agg_data["Carbohydrates (g)"] + agg_data["Proteins (g)"] + agg_data["Fats (g)"], 1)
+                ],
+                "Calories": [
+                    carbs_cal,
+                    protein_cal,
+                    fat_cal,
+                    carbs_cal + protein_cal + fat_cal
+                ],
+                "% of Total": [
+                    f"{round((carbs_cal / total_calories) * 100)}%" if total_calories > 0 else "0%",
+                    f"{round((protein_cal / total_calories) * 100)}%" if total_calories > 0 else "0%",
+                    f"{round((fat_cal / total_calories) * 100)}%" if total_calories > 0 else "0%",
+                    "100%"
                 ]
             }
             st.dataframe(pd.DataFrame(summary_data), hide_index=True)
         
         with chart_col2:
             st.subheader("Emissions Impact")
-            emissions_chart = create_radial_chart(agg_data, "emissions")
-            st.plotly_chart(emissions_chart, use_container_width=True)
+            emissions_chart = create_emissions_chart(agg_data)
+            st.pyplot(emissions_chart)
             
             # Show emissions summary
             st.write("### Emissions Summary")
@@ -253,7 +305,7 @@ if selected_foods:
     selected_df = pd.DataFrame(selected_data)
     
     # Calculate the totals for each item based on quantity
-    for col in ["Carbohydrates (g)", "Proteins (g)", "Fats (g)"]:
+    for col in ["Carbohydrates (g)", "Proteins (g)", "Fats (g)", "Calories"]:
         selected_df[f"Total {col}"] = selected_df[col] * selected_df["Quantity (oz)"].apply(oz_to_kg)
     
     for col in [c for c in selected_df.columns if c.startswith("food_emissions")]:
@@ -262,7 +314,7 @@ if selected_foods:
     
     # Select columns to display
     display_cols = [
-        "Entity", "Quantity (oz)", 
+        "Entity", "Quantity (oz)", "Total Calories",
         "Total Carbohydrates (g)", "Total Proteins (g)", "Total Fats (g)",
         "Total Emissions land_use (kg CO₂)", "Total Emissions farm (kg CO₂)",
         "Total Emissions animal_feed (kg CO₂)", "Total Emissions transport (kg CO₂)"
@@ -271,14 +323,5 @@ if selected_foods:
     # Display the table
     st.dataframe(selected_df[display_cols].sort_values("Entity"), hide_index=True)
 
-# Add some information about the data source and app
-st.markdown("""
----
-### About this App
-This app calculates the nutritional content and environmental impact of selected foods based on quantity.
-- Source data is per kilogram of each food item.
-- The app automatically converts between your selected ounce quantities and the per-kilogram data.
-- Nutritional data is shown in grams.
-- Emissions data is shown in kg CO₂ equivalent.
-- Negative emission values (like in land use) represent carbon sequestration.
-""")
+# Visualization for the comparison between foods
+if
